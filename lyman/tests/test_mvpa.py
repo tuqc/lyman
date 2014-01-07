@@ -102,7 +102,7 @@ def test_extract_dataset():
     """Test simple case."""
     evs = pd.DataFrame(dict(onset=[1, 2, 3],
                             condition=["foo", "foo", "bar"]),
-                            dtype=float)
+                       dtype=float)
     ts = np.random.randn(5, 5, 5, 4)
     mask = ts[..., 0] > .5
     X, y, m = mvpa.extract_dataset(evs, ts, mask, 1)
@@ -113,7 +113,7 @@ def test_extract_dataset():
     assert_array_equal(X, should_be)
 
     X_, y_, m_ = mvpa.extract_dataset(evs, ts, mask, 1,
-                                  event_names=["bar", "foo"])
+                                      event_names=["bar", "foo"])
     assert_array_equal(X_, X)
     assert_array_equal(y_, y)
     assert_array_equal(m_, m)
@@ -123,7 +123,7 @@ def test_extract_sizes():
     """Test different frame sizes."""
     evs = pd.DataFrame(dict(onset=[1, 2, 3],
                             condition=["foo", "foo", "bar"]),
-                            dtype=float)
+                       dtype=float)
     ts = np.random.randn(5, 5, 5, 4)
     mask = ts[..., 0] > .5
 
@@ -139,12 +139,12 @@ def test_extract_upsample():
     """Test upsampling during extraction."""
     evs = pd.DataFrame(dict(onset=[1, 2, 3],
                             condition=["foo", "foo", "bar"]),
-                            dtype=float)
+                       dtype=float)
     ts = np.random.randn(5, 5, 5, 10)
     mask = ts[..., 0] > .5
 
     X, y, m = mvpa.extract_dataset(evs, ts, mask, tr=1,
-                                frames=[-1, 0], upsample=2)
+                                   frames=[-1, 0], upsample=2)
     assert_equal(X.shape, (4, 3, mask.sum()))
     assert_equal(len(m), mask.sum())
 
@@ -153,7 +153,7 @@ def test_extract_zero_var():
     """Test that zero-variance features are masked out."""
     evs = pd.DataFrame(dict(onset=[1, 2, 3],
                             condition=["foo", "foo", "bar"]),
-                            dtype=float)
+                       dtype=float)
     ts = np.random.randn(5, 5, 5, 10)
     ts[0, 0, 0, :] = 0
     mask = np.ones((5, 5, 5), np.bool)

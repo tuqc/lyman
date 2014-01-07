@@ -379,8 +379,8 @@ def extract_subject(subj, problem, roi_name, mask_name=None, frames=None,
 
         # Use the basic extractor function
         X_i, y_i, use_i = extract_dataset(sched_r, ts_data,
-                                           mask_data, exp["TR"],
-                                           frames, upsample, event_names)
+                                          mask_data, exp["TR"],
+                                          frames, upsample, event_names)
 
         # Just add to list
         X.append(X_i)
@@ -389,7 +389,7 @@ def extract_subject(subj, problem, roi_name, mask_name=None, frames=None,
 
     # Find the voxels that are good in every run and make a final mask
     good_features = np.all(use, axis=0)
-    mask_data[mask_data] = good_features 
+    mask_data[mask_data] = good_features
 
     # Stick the list items together for final dataset
     if frames is not None and len(frames) > 1:
@@ -400,7 +400,7 @@ def extract_subject(subj, problem, roi_name, mask_name=None, frames=None,
     runs = sched.run
 
     # Apply the feature mask
-    X =  np.atleast_3d(X)[:, :, good_features].squeeze()
+    X = np.atleast_3d(X)[:, :, good_features].squeeze()
 
     # Regress the confound vector out from the data matrix
     if confounds is not None:
