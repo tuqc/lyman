@@ -18,148 +18,79 @@ from sklearn.cross_validation import (KFold,
                                       LeaveOneLabelOut)
 
 import moss
+from moss import glm
 from lyman import gather_project_info, gather_experiment_info
 
 
-def iterated_deconvolution(data, evs, tr=2, hpf_cutoff=128, filter_data=True,
-                           copy_data=False, split_confounds=True,
-                           hrf_model="canonical", fir_bins=12):
+def iterated_deconvolution(sched, data, tr=2, event_names=None,
+                           hrf_model="GammaDifferenceHRF", hpf_cutoff=128):
     """Deconvolve stimulus events from an ROI data matrix.
 
     Parameters
     ----------
-    data : ntp x n_feat
+    data : ntp x n_feat array
         array of fMRI data from an ROI
-    evs : sequence of n x 3 arrays
-        list of (onset, duration, amplitude) event specifications
-    tr : int
-        time resolution in seconds
-    hpf_cutoff : float or None
-        filter cutoff in seconds or None to skip filter
-    filter_data : bool
-        if False data is assumed to have been filtered
-    copy_data : bool
-        if False data is filtered in place
-    split_confounds : boolean
-        if true, confound regressors are separated by event type
-    hrf_model : string
-        nipy hrf_model specification name
-    fir_bins : none or int
-        number of bins if hrf_model is "fir"
 
     Returns
     -------
-    coef_array : n_ev x n_feat array
-        array of deconvolved parameter estimates
+    beta_array : n_ev x n_feat array
+        Decoding matrix of deconvolved parameter estimates.
+    cond_array : n_ev array
+        Vector of condition names
 
     """
-    # Possibly filter the data
-    ntp = data.shape[0]
-    if hpf_cutoff is not None:
-        F = moss.glm.fsl_highpass_matrix(ntp, hpf_cutoff, tr)
-        if filter_data:
-            if copy_data:
-                data = data.copy()
-            data[:] = np.dot(F, data)
-    # Demean by feature
-    data -= data.mean(axis=0)
-
     # Devoncolve the parameter estimate for each event
-    coef_list = []
-    for X_i in event_designs(evs, ntp, tr, split_confounds,
-                             hrf_model, fir_bins):
-        # Filter each design matrix
-        if hpf_cutoff is not None:
-            X_i = np.dot(F, X_i)
-        X_i -= X_i.mean(axis=0)
+    ntp = data.shape[0]
+    design_generator = event_designs(sched, ntp, tr, event_names,
+                                     hrf_model, hpf_cutoff)
+    cond_list = []
+    beta_list = []
+
+    data = data - data.mean(axis=0)
+
+    for X_i, cond_i in design_generator:
+
         # Fit an OLS model
-        beta_i, _, _, _ = np.linalg.lstsq(X_i, data)
-        # Select the relevant betas
-        if hrf_model == "fir":
-            coef_list.append(np.hstack(beta_i[:fir_bins]))
-        else:
-            coef_list.append(beta_i[0])
+        beta_i = np.linalg.pinv(X_i.design_matrix).dot(data)[0]
+        beta_list.append(beta_i)
+        cond_list.append(cond_i)
 
-    return np.vstack(coef_list)
+    return np.array(beta_list), np.array(cond_list)
 
 
-def event_designs(evs, ntp, tr=2, split_confounds=True,
-                  hrf_model="canonical", fir_bins=12):
-    """Generator function to return event-wise design matrices.
+def event_designs(sched, ntp, tr=2, event_names=None,
+                  hrf_model="GammaDifferenceHRF", hpf_cutoff=128):
+    """Generator function to return design matrices for event deconvolution.
 
     Parameters
     ----------
-    evs : sequence of n x 3 arrays
-        list of (onset, duration, amplitude) event secifications
-    ntp : int
-        total number of timepoints in experiment
-    tr : int
-        time resolution in seconds
-    split_confounds : boolean
-        if true, confound regressors are separated by event type
-    hrf_model : string
-        nipy hrf_model specification name
-    fir_bins : none or int
-        number of bins if hrf_model is "fir"
+    sched : DataFrame
 
     Yields
     ------
-    design_mat : ntp x (2 or n event + 1) array
+    design_mat : moss DesignMatrix
         yields a design matrix to deconvolve each event
         with the event of interest as the first column
 
     """
-    n_cond = len(evs)
-    master_sched = moss.make_master_schedule(evs)
-
-    # Create a vector of frame onset times
-    frametimes = np.linspace(0, ntp * tr - tr, ntp)
-
-    # Set up FIR bins, maybe
-    if hrf_model == "fir":
-        fir_delays = np.linspace(0, tr * (fir_bins - 1), fir_bins)
-    else:
-        fir_delays = None
-
-    # Generator loop
-    for ii, row in enumerate(master_sched):
-        # Unpack the schedule row
-        time, dur, amp, ev_id, stim_idx = row
-
-        # Generate the regressor for the event of interest
-        ev_interest = np.atleast_2d(row[:3]).T
-        design_mat, _ = hrf.compute_regressor(ev_interest,
-                                              hrf_model,
-                                              frametimes,
-                                              fir_delays=fir_delays)
-
-        # Build the confound regressors
-        if split_confounds:
-            # Possibly one for each event type
-            for cond in range(n_cond):
-                cond_idx = master_sched[:, 3] == cond
-                conf_sched = master_sched[cond_idx]
-                if cond == ev_id:
-                    conf_sched = np.delete(conf_sched, stim_idx, 0)
-                conf_reg, _ = hrf.compute_regressor(conf_sched[:, :3].T,
-                                                    hrf_model,
-                                                    frametimes,
-                                                    fir_delays=fir_delays)
-                design_mat = np.column_stack((design_mat, conf_reg))
-        else:
-            # Or a single confound regressor
-            conf_sched = np.delete(master_sched, ii, 0)
-            conf_reg, _ = hrf.compute_regressor(conf_sched[:, :3].T,
-                                                hrf_model,
-                                                frametimes,
-                                                fir_delays=fir_delays)
-            design_mat = np.column_stack((design_mat, conf_reg))
-
-        yield design_mat
+    hrf = getattr(glm, hrf_model)(False, tr)
+    if event_names is None:
+        event_names = sorted(sched.condition.unique())
+    event_names = ["_interest"] + list(event_names)
+    want_conditions = sched.condition.isin(event_names)
+    sched = sched[want_conditions].sort("onset")
+    for row, event in sched.iterrows():
+        condition = str(event["condition"])
+        sched.loc[row, "condition"] = "_interest"
+        X = glm.DesignMatrix(sched, hrf, ntp,
+                             condition_names=event_names,
+                             hpf_cutoff=hpf_cutoff)
+        yield X, condition
+        sched.loc[row, "condition"] = condition
 
 
 def extract_dataset(sched, timeseries, mask, tr=2, frames=None,
-                    upsample=None, event_names=None):
+                    upsample=None, event_names=None, deconvolve=False):
     """Extract model and targets for single run of fMRI data.
 
     Parameters
@@ -216,6 +147,7 @@ def extract_dataset(sched, timeseries, mask, tr=2, frames=None,
     else:
         sched = sched[sched.condition.isin(event_names)]
         event_names = list(event_names)
+    sched.sort("onset", inplace=True)
     X = np.zeros((len(frames), sched.shape[0], mask.sum()))
     y = sched.condition.map(lambda x: event_names.index(x))
 
@@ -234,10 +166,15 @@ def extract_dataset(sched, timeseries, mask, tr=2, frames=None,
         roi_data = interpolator(xx)
 
     # Build the data array
-    for i, frame in enumerate(frames):
-        onsets = np.array(sched.onset / tr).astype(int) * upsample
-        onsets += int(frame)
-        X[i, ...] = sp.stats.zscore(roi_data[onsets])
+    if deconvolve:
+        X, y = iterated_deconvolution(sched, roi_data, tr, event_names)
+        X = sp.stats.zscore(X)[np.newaxis, ...]
+        y = np.array(list(map(event_names.index, y)))
+    else:
+        for i, frame in enumerate(frames):
+            onsets = np.array(sched.onset / tr).astype(int) * upsample
+            onsets += int(frame)
+            X[i, ...] = sp.stats.zscore(roi_data[onsets])
 
     # Find a mask to only use features with nonzero variance
     good_features = np.all([(np.var(X_i, axis=0) > 0) for X_i in X], axis=0)
@@ -247,7 +184,8 @@ def extract_dataset(sched, timeseries, mask, tr=2, frames=None,
 
 def extract_subject(subj, problem, roi_name, mask_name=None, frames=None,
                     collapse=None, confounds=None, upsample=None,
-                    smoothed=False, exp_name=None, event_names=None):
+                    smoothed=False, exp_name=None, event_names=None,
+                    deconvolve=False):
     """Build decoding dataset from predictable lyman outputs.
 
     This function will make use of the LYMAN_DIR environment variable
@@ -393,14 +331,11 @@ def extract_subject(subj, problem, roi_name, mask_name=None, frames=None,
 
     # Stick the list items together for final dataset
     if frames is not None and len(frames) > 1:
-        X = np.concatenate(X, axis=1)
+        X = np.concatenate(X, axis=1)[:, :, good_features]
     else:
-        X = np.concatenate(X, axis=0)
+        X = np.concatenate(X, axis=0)[:, good_features]
     y = np.concatenate(y)
-    runs = sched.run
-
-    # Apply the feature mask
-    X = np.atleast_3d(X)[:, :, good_features].squeeze()
+    runs = sched.run.values
 
     # Regress the confound vector out from the data matrix
     if confounds is not None:
@@ -440,7 +375,8 @@ def _temporal_compression(collapse, dset):
 
 def extract_group(problem, roi_name, mask_name=None, frames=None,
                   collapse=None, confounds=None, upsample=None, smoothed=False,
-                  exp_name=None, event_names=None, subjects=None, dv=None):
+                  exp_name=None, event_names=None, subjects=None,
+                  deconvolve=False, dv=None):
     """Load datasets for a group of subjects, possibly in parallel.
 
     Parameters
@@ -515,11 +451,12 @@ def extract_group(problem, roi_name, mask_name=None, frames=None,
     smoothed = [smoothed for _ in subjects]
     exp_name = [exp_name for _ in subjects]
     event_names = [event_names for _ in subjects]
+    deconvolve = [deconvolve for _ in subjects]
 
     # Actually do the loading
     data = map(extract_subject, subjects, problem, roi_name, mask_name,
                frames, collapse, confounds, upsample, smoothed, exp_name,
-               event_names)
+               event_names, deconvolve)
 
     return data
 
