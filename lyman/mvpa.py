@@ -79,12 +79,13 @@ def event_designs(sched, ntp, tr=2, event_names=None,
     event_names = ["_interest"] + list(event_names)
     want_conditions = sched.condition.isin(event_names)
     sched = sched[want_conditions].sort("onset")
+    hpf_kernel = glm.fsl_highpass_matrix(ntp, hpf_cutoff, tr)
     for row, event in sched.iterrows():
         condition = str(event["condition"])
         sched.loc[row, "condition"] = "_interest"
-        X = glm.DesignMatrix(sched, hrf, ntp,
+        X = glm.DesignMatrix(sched, hrf, ntp, tr=tr,
                              condition_names=event_names,
-                             hpf_cutoff=hpf_cutoff)
+                             hpf_kerenl=hpf_kernel)
         yield X, condition
         sched.loc[row, "condition"] = condition
 
