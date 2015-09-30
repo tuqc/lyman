@@ -25,6 +25,7 @@ import lyman
 import lyman.workflows as wf
 from lyman import tools
 
+from glob import glob
 
 def main(arglist):
     """Main function for workflow setup and execution."""
@@ -34,12 +35,41 @@ def main(arglist):
     project = lyman.gather_project_info()
     exp = lyman.gather_experiment_info(args.experiment, args.altmodel)
 
+    if not ("LYMAN_DIR" in os.environ and os.environ["LYMAN_DIR"]):
+        print "ChenDa: set LYMAN_DIR as the current directory: ", os.getcwd()
+        os.environ["LYMAN_DIR"] = os.getcwd()
+    else:
+        print "Use the environ LYMAN_DIR: ", os.environ["LYMAN_DIR"]
+
     # Set up the SUBJECTS_DIR for Freesurfer
     os.environ["SUBJECTS_DIR"] = project["data_dir"]
 
     # Subject is always highest level of parameterization
     subject_list = lyman.determine_subjects(args.subjects)
     subj_source = tools.make_subject_source(subject_list)
+
+    # chenda! determines the n_runs
+    if len(subject_list) == 0:
+        print "ChenDa: Empty subject list"
+        return
+    if "source_template" not in exp:
+        print "ChenDa: source_template is not set."
+        return
+    
+    source_path = exp["source_template"].replace("{subject_id}", subject_list[0])
+    source_path = op.join(project["data_dir"], source_path)
+    print "Check n_runs in ", source_path
+    files = glob(source_path)
+    n_runs = len(files)
+    print "ChenDa: actual n_runs is ", n_runs
+    if n_runs == 0:
+        print "[Error] ChenDa: can't find files in ", source_path
+        return
+    if "n_runs" in exp and exp["n_runs"] > 0 and n_runs != exp["n_runs"]:
+        print "[WARN] ChenDa: actual n_runs is not equal setting one, %s != %s" % (n_runs, exp["n_runs"])
+    if "n_runs" not in exp:
+        exp["n_runs"] = n_runs
+ 
 
     # Get the full correct name for the experiment
     if args.experiment is None:
