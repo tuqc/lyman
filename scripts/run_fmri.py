@@ -31,15 +31,15 @@ def main(arglist):
     """Main function for workflow setup and execution."""
     args = parse_args(arglist)
 
-    # Get and process specific information
-    project = lyman.gather_project_info()
-    exp = lyman.gather_experiment_info(args.experiment, args.altmodel)
-
     if not ("LYMAN_DIR" in os.environ and os.environ["LYMAN_DIR"]):
         print "ChenDa: set LYMAN_DIR as the current directory: ", os.getcwd()
         os.environ["LYMAN_DIR"] = os.getcwd()
     else:
         print "Use the environ LYMAN_DIR: ", os.environ["LYMAN_DIR"]
+
+    # Get and process specific information
+    project = lyman.gather_project_info()
+    exp = lyman.gather_experiment_info(args.experiment, args.altmodel)
 
     # Set up the SUBJECTS_DIR for Freesurfer
     os.environ["SUBJECTS_DIR"] = project["data_dir"]
